@@ -1,26 +1,84 @@
+import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { 
-  Key, 
-  Wifi, 
-  Database,
-  Save,
+import {
   Check,
+  Database,
   Eye,
   EyeOff,
-  Settings as SettingsIcon
+  Key,
+  Save,
+  Settings as SettingsIcon,
+  Wifi,
 } from "lucide-react";
-import { useState } from "react";
 import { toast } from "sonner";
 
+import { fetchSettings, saveSettings, type SettingsResponse } from "@/app/lib/api";
+
+const defaultSettings: SettingsResponse = {
+  user_id: "demo-user",
+  api_keys: {
+    anthropic: "",
+    elevenlabs: "",
+    presage: "",
+    gemini: "",
+  },
+  database: {
+    mongo_uri: "",
+  },
+  hardware: {
+    device_ip: "",
+    websocket_port: "81",
+  },
+};
+
 export function Settings() {
-  const [showKeys, setShowKeys] = useState<{ [key: string]: boolean }>({});
-  
+  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
+  const [settings, setSettings] = useState<SettingsResponse>(defaultSettings);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadSettings() {
+      try {
+        const response = await fetchSettings();
+        if (isMounted) {
+          setSettings(response);
+        }
+      } catch (error) {
+        if (isMounted) {
+          toast.error(error instanceof Error ? error.message : "Unable to load settings.");
+        }
+      }
+    }
+
+    void loadSettings();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const toggleKey = (key: string) => {
-    setShowKeys(prev => ({ ...prev, [key]: !prev[key] }));
+    setShowKeys((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const handleSave = () => {
-    toast.success("Configuration saved securely.");
+  const handleSave = async () => {
+    setIsSaving(true);
+
+    try {
+      const saved = await saveSettings({
+        user_id: settings.user_id,
+        api_keys: settings.api_keys,
+        database: settings.database,
+        hardware: settings.hardware,
+      });
+      setSettings(saved);
+      toast.success("Configuration saved securely.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to save settings.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -34,8 +92,7 @@ export function Settings() {
       </div>
 
       <div className="grid grid-cols-1 gap-8">
-        {/* API Keys */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="p-6 rounded-xl border border-neutral-800 bg-neutral-900/50 backdrop-blur"
@@ -55,12 +112,22 @@ export function Settings() {
               <div key={field.id} className="space-y-2">
                 <label className="text-sm font-medium text-neutral-300">{field.label}</label>
                 <div className="relative group">
-                  <input 
-                    type={showKeys[field.id] ? "text" : "password"} 
+                  <input
+                    type={showKeys[field.id] ? "text" : "password"}
+                    value={settings.api_keys[field.id as keyof SettingsResponse["api_keys"]]}
+                    onChange={(event) =>
+                      setSettings((current) => ({
+                        ...current,
+                        api_keys: {
+                          ...current.api_keys,
+                          [field.id]: event.target.value,
+                        },
+                      }))
+                    }
                     className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-4 py-3 text-white placeholder-neutral-600 outline-none focus:ring-2 focus:ring-yellow-500/50 transition-all font-mono text-sm"
                     placeholder={field.placeholder}
                   />
-                  <button 
+                  <button
                     onClick={() => toggleKey(field.id)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white transition-colors p-1"
                   >
@@ -72,8 +139,7 @@ export function Settings() {
           </div>
         </motion.div>
 
-        {/* Database */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
@@ -88,29 +154,37 @@ export function Settings() {
             <div className="space-y-2">
               <label className="text-sm font-medium text-neutral-300">Connection String</label>
               <div className="relative">
-                <input 
-                  type={showKeys["mongo"] ? "text" : "password"} 
-                  defaultValue="mongodb+srv://user:password@cluster0.mongodb.net/petDB"
+                <input
+                  type={showKeys.mongo ? "text" : "password"}
+                  value={settings.database.mongo_uri}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      database: {
+                        ...current.database,
+                        mongo_uri: event.target.value,
+                      },
+                    }))
+                  }
                   className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-4 py-3 text-white placeholder-neutral-600 outline-none focus:ring-2 focus:ring-green-500/50 transition-all font-mono text-sm"
                 />
-                 <button 
-                    onClick={() => toggleKey("mongo")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white transition-colors p-1"
-                  >
-                    {showKeys["mongo"] ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
+                <button
+                  onClick={() => toggleKey("mongo")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white transition-colors p-1"
+                >
+                  {showKeys.mongo ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
               </div>
             </div>
-            
+
             <div className="flex items-center gap-2 text-sm text-green-400 mt-2">
               <Check size={14} />
-              <span>Connection Verified</span>
+              <span>{settings.database.mongo_uri ? "Connection string stored" : "Using backend default if empty"}</span>
             </div>
           </div>
         </motion.div>
 
-        {/* Hardware */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
@@ -124,17 +198,35 @@ export function Settings() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div className="space-y-2">
               <label className="text-sm font-medium text-neutral-300">Device IP Address</label>
-              <input 
-                type="text" 
-                defaultValue="192.168.1.45"
+              <input
+                type="text"
+                value={settings.hardware.device_ip}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    hardware: {
+                      ...current.hardware,
+                      device_ip: event.target.value,
+                    },
+                  }))
+                }
                 className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-4 py-3 text-white outline-none focus:ring-2 focus:ring-blue-500/50 font-mono text-sm"
               />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-neutral-300">WebSocket Port</label>
-              <input 
-                type="text" 
-                defaultValue="81"
+              <input
+                type="text"
+                value={settings.hardware.websocket_port}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    hardware: {
+                      ...current.hardware,
+                      websocket_port: event.target.value,
+                    },
+                  }))
+                }
                 className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-4 py-3 text-white outline-none focus:ring-2 focus:ring-blue-500/50 font-mono text-sm"
               />
             </div>
@@ -142,12 +234,13 @@ export function Settings() {
         </motion.div>
 
         <div className="flex justify-end pt-4 border-t border-neutral-800">
-          <button 
-            onClick={handleSave}
-            className="flex items-center gap-2 px-8 py-3 bg-white text-black hover:bg-neutral-200 rounded-lg font-medium transition-colors shadow-lg shadow-white/10"
+          <button
+            onClick={() => void handleSave()}
+            disabled={isSaving}
+            className="flex items-center gap-2 px-8 py-3 bg-white text-black hover:bg-neutral-200 rounded-lg font-medium transition-colors shadow-lg shadow-white/10 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Save size={18} />
-            Save Configuration
+            {isSaving ? "Saving..." : "Save Configuration"}
           </button>
         </div>
       </div>

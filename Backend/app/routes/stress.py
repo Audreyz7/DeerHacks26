@@ -246,3 +246,33 @@ def get_focus_report(session_id: str):
     if report.get("generated_at"):
         report["generated_at"] = report["generated_at"].isoformat()
     return report
+
+
+@bp.get("/latest")
+def get_latest_focus_snapshot():
+    db = get_db()
+    user_id = request.args.get("user_id")
+    if not user_id:
+        return {"error": "missing user_id"}, 400
+
+    latest_sample = db.focus_samples.find_one(
+        {"user_id": user_id},
+        {"_id": 0},
+        sort=[("captured_at", -1)],
+    )
+    latest_report = db.focus_reports.find_one(
+        {"user_id": user_id},
+        {"_id": 0},
+        sort=[("generated_at", -1)],
+    )
+
+    if latest_sample and latest_sample.get("captured_at"):
+        latest_sample["captured_at"] = latest_sample["captured_at"].isoformat()
+    if latest_report and latest_report.get("generated_at"):
+        latest_report["generated_at"] = latest_report["generated_at"].isoformat()
+
+    return {
+        "user_id": user_id,
+        "latest_sample": latest_sample,
+        "latest_report": latest_report,
+    }

@@ -1,4 +1,4 @@
-from flask import Blueprint, request
+from flask import Blueprint, current_app, request
 
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -31,6 +31,113 @@ def is_due(now_utc: datetime, last_utc: datetime | None, interval_min: int) -> b
     if last_utc is None:
         return True
     return now_utc >= (last_utc + timedelta(minutes=interval_min))
+
+
+def _now_utc() -> datetime:
+    return datetime.now(tz=ZoneInfo("UTC"))
+
+
+def _parse_timestamp(value: str | None) -> datetime:
+    if not value:
+        return _now_utc()
+
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=ZoneInfo("UTC"))
+    return parsed.astimezone(ZoneInfo("UTC"))
+
+
+def _local_day_bounds(now_utc: datetime, timezone_name: str) -> tuple[datetime, datetime]:
+    tz = ZoneInfo(timezone_name)
+    now_local = now_utc.astimezone(tz)
+    local_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    local_end = local_start + timedelta(days=1)
+    return local_start.astimezone(ZoneInfo("UTC")), local_end.astimezone(ZoneInfo("UTC"))
+
+
+def _weekly_history(db, user_id: str, timezone_name: str, days: int = 7) -> list[dict]:
+    tz = ZoneInfo(timezone_name)
+    now_utc = _now_utc()
+    history: list[dict] = []
+
+    for offset in range(days - 1, -1, -1):
+        target_local = now_utc.astimezone(tz) - timedelta(days=offset)
+        day_start_local = target_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end_local = day_start_local + timedelta(days=1)
+        day_start_utc = day_start_local.astimezone(ZoneInfo("UTC"))
+        day_end_utc = day_end_local.astimezone(ZoneInfo("UTC"))
+
+        events = db.water_events.find(
+            {
+                "user_id": user_id,
+                "type": "INTAKE",
+                "at_utc": {"$gte": day_start_utc, "$lt": day_end_utc},
+            },
+            {"_id": 0, "amount_ml": 1},
+        )
+        total_ml = sum(int(event.get("amount_ml", 0)) for event in events)
+        history.append(
+            {
+                "label": day_start_local.strftime("%a"),
+                "total_ml": total_ml,
+                "total_liters": round(total_ml / 1000, 2),
+            }
+        )
+
+    return history
+
+
+def _summary_payload(db, user_id: str) -> dict:
+    sched = db.water_schedules.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    timezone_name = sched.get("timezone", current_app.config["DEFAULT_TIMEZONE"])
+    now_utc = _now_utc()
+    day_start_utc, day_end_utc = _local_day_bounds(now_utc, timezone_name)
+
+    intake_events = list(
+        db.water_events.find(
+            {
+                "user_id": user_id,
+                "type": "INTAKE",
+                "at_utc": {"$gte": day_start_utc, "$lt": day_end_utc},
+            },
+            {"_id": 0},
+            sort=[("at_utc", 1)],
+        )
+    )
+    total_intake_ml = sum(int(event.get("amount_ml", 0)) for event in intake_events)
+    last_intake_at = intake_events[-1]["at_utc"].isoformat() if intake_events else None
+
+    next_reminder_at = None
+    if sched.get("enabled") and sched.get("interval_min"):
+        last_triggered_at = sched.get("last_triggered_at")
+        if last_triggered_at:
+            next_reminder_at = (
+                last_triggered_at + timedelta(minutes=int(sched["interval_min"]))
+            ).isoformat()
+
+    return {
+        "user_id": user_id,
+        "today": {
+            "total_intake_ml": total_intake_ml,
+            "total_intake_liters": round(total_intake_ml / 1000, 2),
+            "goal_liters": float(sched.get("daily_goal_liters", 2.5)),
+            "progress_percent": min(
+                round((total_intake_ml / max(float(sched.get("daily_goal_liters", 2.5)) * 1000, 1)) * 100),
+                100,
+            ),
+            "last_intake_at": last_intake_at,
+            "next_reminder_at": next_reminder_at,
+        },
+        "weekly_history": _weekly_history(db, user_id, timezone_name),
+        "schedule": {
+            "timezone": timezone_name,
+            "start_time": sched.get("start_time", "09:00"),
+            "end_time": sched.get("end_time", "18:00"),
+            "interval_min": int(sched.get("interval_min", 45)),
+            "enabled": bool(sched.get("enabled", True)),
+            "daily_goal_liters": float(sched.get("daily_goal_liters", 2.5)),
+        },
+    }
 
 bp = Blueprint("pets", __name__)
 
@@ -83,6 +190,7 @@ def set_schedule():
         "end_time": end_time,
         "interval_min": interval_min,
         "enabled": bool(data.get("enabled", True)),
+        "daily_goal_liters": float(data.get("daily_goal_liters", 2.5)),
     }
 
     db.water_schedules.update_one(
@@ -194,3 +302,44 @@ def ack_reminder():
     now_utc = datetime.now(tz=ZoneInfo("UTC"))
     db.water_events.insert_one({"user_id": user_id, "at_utc": now_utc, "type": "DEVICE_ACK"})
     return {"ok": True}
+
+
+@bp.post("/intake")
+def log_intake():
+    db = get_db()
+    data = request.get_json(force=True)
+
+    user_id = data.get("user_id")
+    if not user_id:
+        return {"error": "missing user_id"}, 400
+
+    try:
+        amount_ml = int(data.get("amount_ml", 250))
+    except (TypeError, ValueError):
+        return {"error": "amount_ml must be an integer"}, 400
+
+    if amount_ml <= 0:
+        return {"error": "amount_ml must be greater than zero"}, 400
+
+    consumed_at = _parse_timestamp(data.get("consumed_at"))
+    db.water_events.insert_one(
+        {
+            "user_id": user_id,
+            "at_utc": consumed_at,
+            "type": "INTAKE",
+            "amount_ml": amount_ml,
+            "source": data.get("source", "frontend"),
+        }
+    )
+
+    return {"ok": True, "logged_at": consumed_at.isoformat(), "summary": _summary_payload(db, user_id)}, 201
+
+
+@bp.get("/summary")
+def get_summary():
+    user_id = request.args.get("user_id")
+    if not user_id:
+        return {"error": "missing user_id"}, 400
+
+    db = get_db()
+    return _summary_payload(db, user_id)

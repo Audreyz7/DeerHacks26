@@ -242,3 +242,46 @@ def send_message():
             response["audio_error"] = str(exc)
 
     return response
+
+
+@bp.post("/preview")
+def preview_voice():
+    db = get_db()
+    data = request.get_json(force=True)
+
+    user_id = data.get("user_id")
+    if not user_id:
+        return {"error": "missing user_id"}, 400
+
+    persona = _load_persona(db, user_id)
+    preview_text = str(data.get("text") or f"Hi, I'm {persona['pet_name']}. Ready to focus?")
+
+    try:
+        audio_base64 = _tts_audio(preview_text, data.get("voice_id") or persona.get("voice_id"))
+    except (RuntimeError, HTTPError, URLError) as exc:
+        return {"error": f"tts_preview_failed: {exc}"}, 502
+
+    return {"ok": True, "text": preview_text, "audio_base64": audio_base64}
+
+
+@bp.get("/stats")
+def get_chat_stats():
+    db = get_db()
+    user_id = request.args.get("user_id")
+    if not user_id:
+        return {"error": "missing user_id"}, 400
+
+    message_count = db.chat_messages.count_documents({"user_id": user_id})
+    conversation_count = len(db.chat_messages.distinct("conversation_id", {"user_id": user_id}))
+    latest_message = db.chat_messages.find_one(
+        {"user_id": user_id},
+        {"_id": 0},
+        sort=[("_id", -1)],
+    )
+
+    return {
+        "user_id": user_id,
+        "message_count": message_count,
+        "conversation_count": conversation_count,
+        "latest_message": latest_message,
+    }

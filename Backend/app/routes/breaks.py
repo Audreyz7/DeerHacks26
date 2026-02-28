@@ -153,6 +153,20 @@ def set_stress_prompt_preference():
     return {"ok": True, "user_id": user_id, "stress_prompt_enabled": enabled}
 
 
+@bp.get("/preferences/stress-prompts")
+def get_stress_prompt_preference():
+    db = get_db()
+    user_id = request.args.get("user_id")
+    if not user_id:
+        return {"error": "missing user_id"}, 400
+
+    preference = db.break_preferences.find_one({"user_id": user_id}, {"_id": 0})
+    return {
+        "user_id": user_id,
+        "stress_prompt_enabled": bool(preference and preference.get("stress_prompt_enabled")),
+    }
+
+
 @bp.get("/prompt/poll")
 def poll_break_prompt():
     db = get_db()
@@ -195,3 +209,23 @@ def acknowledge_break_prompt():
         return {"error": "not found"}, 404
 
     return {"ok": True, "prompt_id": prompt_id, "resolved_at": resolved_at.isoformat()}
+
+
+@bp.post("/pomodoro/stop")
+def stop_pomodoro():
+    db = get_db()
+    data = request.get_json(force=True)
+
+    session_id = data.get("session_id")
+    if not session_id:
+        return {"error": "missing session_id"}, 400
+
+    ended_at = _parse_timestamp(data.get("ended_at"))
+    result = db.pomodoro_sessions.update_one(
+        {"session_id": session_id, "status": "active"},
+        {"$set": {"status": "cancelled", "ended_at": ended_at}},
+    )
+    if result.matched_count == 0:
+        return {"error": "not found"}, 404
+
+    return {"ok": True, "session_id": session_id, "ended_at": ended_at.isoformat()}

@@ -18,7 +18,5 @@ class Config:
     ELEVEN_LABS_TTS_MODEL = os.getenv("ELEVEN_LABS_TTS_MODEL", "eleven_multilingual_v2")
 
     # Presage SmartSpectra integration keys.
-    # The backend stores and aggregates the resulting metrics, while
-    # measurement itself should happen on the device/edge integration.
     PRESAGE_API_KEY = os.getenv("PRESAGE_API_KEY", "")
     PRESAGE_PROJECT_ID = os.getenv("PRESAGE_PROJECT_ID", "")

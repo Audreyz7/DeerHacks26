@@ -102,6 +102,17 @@ def _gemini_reply(message_text: str, system_prompt: str, model: str | None) -> s
     return "".join(text_chunks).strip()
 
 
+def _fallback_reply(message_text: str, pet_name: str) -> str:
+    lowered = message_text.lower()
+    if "focus" in lowered or "study" in lowered:
+        return f"{pet_name} says: pick one task, silence distractions, and work in one short focused block."
+    if "stress" in lowered or "overwhelmed" in lowered:
+        return f"{pet_name} says: take one slow breath, reset for two minutes, then resume with a smaller step."
+    if "water" in lowered or "drink" in lowered:
+        return f"{pet_name} says: hydrate first, then get back to the next small task."
+    return f"{pet_name} says: stay steady and take the next clear step."
+
+
 def _tts_audio(text: str, voice_id: str | None) -> str:
     api_key = current_app.config["ELEVEN_LABS_API_KEY"]
     if not api_key:
@@ -206,8 +217,8 @@ def send_message():
             persona["system_prompt"],
             data.get("gemini_model") or persona.get("gemini_model"),
         )
-    except (RuntimeError, HTTPError, URLError) as exc:
-        return {"error": f"gemini_request_failed: {exc}"}, 502
+    except (RuntimeError, HTTPError, URLError):
+        reply_text = _fallback_reply(transcript, persona["pet_name"])
 
     conversation_id = data.get("conversation_id") or str(uuid.uuid4())
     db.chat_messages.insert_many(
@@ -258,10 +269,10 @@ def preview_voice():
 
     try:
         audio_base64 = _tts_audio(preview_text, data.get("voice_id") or persona.get("voice_id"))
-    except (RuntimeError, HTTPError, URLError) as exc:
-        return {"error": f"tts_preview_failed: {exc}"}, 502
+    except (RuntimeError, HTTPError, URLError):
+        return {"ok": True, "text": preview_text, "audio_base64": "", "preview_unavailable": True}
 
-    return {"ok": True, "text": preview_text, "audio_base64": audio_base64}
+    return {"ok": True, "text": preview_text, "audio_base64": audio_base64, "preview_unavailable": False}
 
 
 @bp.get("/stats")

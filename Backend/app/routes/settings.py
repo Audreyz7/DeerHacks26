@@ -3,12 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 
 from flask import Blueprint, current_app, request
-from zoneinfo import ZoneInfo
-
 from ..db import get_db
+from ..timezone_utils import get_timezone
 
 bp = Blueprint("settings", __name__)
-UTC = ZoneInfo("UTC")
+UTC = get_timezone("UTC")
 
 
 def _default_settings(user_id: str) -> dict:

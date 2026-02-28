@@ -4,12 +4,11 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 from flask import Blueprint, request
-from zoneinfo import ZoneInfo
-
 from ..db import get_db
+from ..timezone_utils import get_timezone
 
 bp = Blueprint("breaks", __name__)
-UTC = ZoneInfo("UTC")
+UTC = get_timezone("UTC")
 
 
 def _now_utc() -> datetime:

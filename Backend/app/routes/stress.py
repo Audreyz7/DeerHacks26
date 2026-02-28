@@ -5,13 +5,12 @@ from statistics import mean
 from uuid import uuid4
 
 from flask import Blueprint, request
-from zoneinfo import ZoneInfo
-
 from ..db import get_db
+from ..timezone_utils import get_timezone
 
 bp = Blueprint("stress", __name__)
 
-UTC = ZoneInfo("UTC")
+UTC = get_timezone("UTC")
 HIGH_STRESS_THRESHOLD = 0.75
 PROMPT_AFTER_MINUTES = 10
 

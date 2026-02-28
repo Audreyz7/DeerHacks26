@@ -1,9 +1,9 @@
 from flask import Blueprint, current_app, request
 
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
 from ..db import get_db
+from ..timezone_utils import get_timezone
 
 # Helper Functions
 def parse_hhmm(hhmm: str) -> tuple[int, int]:
@@ -33,8 +33,24 @@ def is_due(now_utc: datetime, last_utc: datetime | None, interval_min: int) -> b
     return now_utc >= (last_utc + timedelta(minutes=interval_min))
 
 
+def _safe_interval_min(value, default: int = 45) -> int:
+    try:
+        parsed = int(value)
+        return parsed if parsed > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_daily_goal_liters(value, default: float = 2.5) -> float:
+    try:
+        parsed = float(value)
+        return parsed if parsed > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
 def _now_utc() -> datetime:
-    return datetime.now(tz=ZoneInfo("UTC"))
+    return datetime.now(tz=get_timezone("UTC"))
 
 
 def _parse_timestamp(value: str | None) -> datetime:
@@ -43,20 +59,20 @@ def _parse_timestamp(value: str | None) -> datetime:
 
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=ZoneInfo("UTC"))
-    return parsed.astimezone(ZoneInfo("UTC"))
+        return parsed.replace(tzinfo=get_timezone("UTC"))
+    return parsed.astimezone(get_timezone("UTC"))
 
 
 def _local_day_bounds(now_utc: datetime, timezone_name: str) -> tuple[datetime, datetime]:
-    tz = ZoneInfo(timezone_name)
+    tz = get_timezone(timezone_name)
     now_local = now_utc.astimezone(tz)
     local_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
     local_end = local_start + timedelta(days=1)
-    return local_start.astimezone(ZoneInfo("UTC")), local_end.astimezone(ZoneInfo("UTC"))
+    return local_start.astimezone(get_timezone("UTC")), local_end.astimezone(get_timezone("UTC"))
 
 
 def _weekly_history(db, user_id: str, timezone_name: str, days: int = 7) -> list[dict]:
-    tz = ZoneInfo(timezone_name)
+    tz = get_timezone(timezone_name)
     now_utc = _now_utc()
     history: list[dict] = []
 
@@ -64,8 +80,8 @@ def _weekly_history(db, user_id: str, timezone_name: str, days: int = 7) -> list
         target_local = now_utc.astimezone(tz) - timedelta(days=offset)
         day_start_local = target_local.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end_local = day_start_local + timedelta(days=1)
-        day_start_utc = day_start_local.astimezone(ZoneInfo("UTC"))
-        day_end_utc = day_end_local.astimezone(ZoneInfo("UTC"))
+        day_start_utc = day_start_local.astimezone(get_timezone("UTC"))
+        day_end_utc = day_end_local.astimezone(get_timezone("UTC"))
 
         events = db.water_events.find(
             {
@@ -120,9 +136,9 @@ def _summary_payload(db, user_id: str) -> dict:
         "today": {
             "total_intake_ml": total_intake_ml,
             "total_intake_liters": round(total_intake_ml / 1000, 2),
-            "goal_liters": float(sched.get("daily_goal_liters", 2.5)),
+            "goal_liters": _safe_daily_goal_liters(sched.get("daily_goal_liters", 2.5)),
             "progress_percent": min(
-                round((total_intake_ml / max(float(sched.get("daily_goal_liters", 2.5)) * 1000, 1)) * 100),
+                round((total_intake_ml / max(_safe_daily_goal_liters(sched.get("daily_goal_liters", 2.5)) * 1000, 1)) * 100),
                 100,
             ),
             "last_intake_at": last_intake_at,
@@ -133,9 +149,9 @@ def _summary_payload(db, user_id: str) -> dict:
             "timezone": timezone_name,
             "start_time": sched.get("start_time", "09:00"),
             "end_time": sched.get("end_time", "18:00"),
-            "interval_min": int(sched.get("interval_min", 45)),
+            "interval_min": _safe_interval_min(sched.get("interval_min", 45)),
             "enabled": bool(sched.get("enabled", True)),
-            "daily_goal_liters": float(sched.get("daily_goal_liters", 2.5)),
+            "daily_goal_liters": _safe_daily_goal_liters(sched.get("daily_goal_liters", 2.5)),
         },
     }
 
@@ -174,12 +190,15 @@ def set_schedule():
 
     # validate timezone & HH:MM format
     try:
-        ZoneInfo(tz)
+        get_timezone(tz)
         parse_hhmm(start_time)
         parse_hhmm(end_time)
         interval_min = int(interval_min)
         if interval_min <= 0:
             raise ValueError("interval_min must be > 0")
+        daily_goal_liters = _safe_daily_goal_liters(data.get("daily_goal_liters", 2.5), default=0)
+        if daily_goal_liters <= 0:
+            raise ValueError("daily_goal_liters must be > 0")
     except Exception as e:
         return {"error": f"invalid schedule fields: {e}"}, 400
 
@@ -190,7 +209,7 @@ def set_schedule():
         "end_time": end_time,
         "interval_min": interval_min,
         "enabled": bool(data.get("enabled", True)),
-        "daily_goal_liters": float(data.get("daily_goal_liters", 2.5)),
+        "daily_goal_liters": daily_goal_liters,
     }
 
     db.water_schedules.update_one(
@@ -244,8 +263,8 @@ def poll_for_reminder():
     if not sched.get("enabled", False):
         return {"remind_now": False, "reason": "disabled"}
 
-    now_utc = datetime.now(tz=ZoneInfo("UTC"))
-    tz = ZoneInfo(sched.get("timezone", "America/Toronto"))
+    now_utc = datetime.now(tz=get_timezone("UTC"))
+    tz = get_timezone(sched.get("timezone", "America/Toronto"))
     now_local = now_utc.astimezone(tz)
 
     if not in_window(now_local, sched["start_time"], sched["end_time"]):
@@ -299,7 +318,7 @@ def ack_reminder():
     if not user_id:
         return {"error": "missing user_id"}, 400
 
-    now_utc = datetime.now(tz=ZoneInfo("UTC"))
+    now_utc = datetime.now(tz=get_timezone("UTC"))
     db.water_events.insert_one({"user_id": user_id, "at_utc": now_utc, "type": "DEVICE_ACK"})
     return {"ok": True}
 

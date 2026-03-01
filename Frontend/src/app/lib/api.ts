@@ -634,7 +634,9 @@ export async function stopPomodoro(sessionId: string): Promise<void> {
         session_id: sessionId,
       },
     });
-  } catch {}
+  } catch {
+    // Keep the local stop state even if the backend request fails.
+  }
 }
 
 export async function fetchStressPromptPreference(

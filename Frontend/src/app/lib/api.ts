@@ -662,7 +662,9 @@ export async function saveStressPromptPreference(
         enabled,
       },
     });
-  } catch {}
+  } catch {
+    // Keep the local preference when the backend request fails.
+  }
 }
 
 export async function fetchPersona(userId = getActiveUserId()): Promise<PersonaResponse> {

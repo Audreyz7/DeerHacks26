@@ -65,8 +65,9 @@ export function Dashboard() {
 
   useEffect(() => {
     let isMounted = true;
+    let hasLoadedOnce = false;
 
-    async function loadDashboard() {
+    async function loadDashboard(showErrors: boolean) {
       try {
         const [hydrationResponse, focusResponse, chatResponse] = await Promise.all([
           fetchHydrationSummary(),
@@ -81,17 +82,31 @@ export function Dashboard() {
         setHydration(hydrationResponse);
         setFocus(focusResponse);
         setChatStats(chatResponse);
+        hasLoadedOnce = true;
       } catch (error) {
-        if (isMounted) {
+        if (isMounted && showErrors) {
           toast.error(error instanceof Error ? error.message : "Unable to load dashboard.");
         }
       }
     }
 
-    void loadDashboard();
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        void loadDashboard(hasLoadedOnce);
+      }
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadDashboard(false);
+    }, 3000);
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    void loadDashboard(true);
 
     return () => {
       isMounted = false;
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 

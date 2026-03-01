@@ -2,20 +2,23 @@ import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import {
   Check,
+  Copy,
   Database,
+  Download,
   Eye,
   EyeOff,
   Key,
+  RefreshCw,
   Save,
   Settings as SettingsIcon,
   Wifi,
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { fetchSettings, saveSettings, type SettingsResponse } from "@/app/lib/api";
+import { fetchSettings, getActiveUserId, saveSettings, setActiveUserId, type SettingsResponse } from "@/app/lib/api";
 
 const defaultSettings: SettingsResponse = {
-  user_id: "demo-user",
+  user_id: getActiveUserId(),
   api_keys: {
     anthropic: "",
     elevenlabs: "",
@@ -31,10 +34,20 @@ const defaultSettings: SettingsResponse = {
   },
 };
 
+function createProvisioningUserId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `user-${crypto.randomUUID().slice(0, 8)}`;
+  }
+
+  return `user-${Date.now().toString(36)}`;
+}
+
 export function Settings() {
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [settings, setSettings] = useState<SettingsResponse>(defaultSettings);
   const [isSaving, setIsSaving] = useState(false);
+  const [wifiSsid, setWifiSsid] = useState("");
+  const [wifiPassword, setWifiPassword] = useState("");
 
   useEffect(() => {
     let isMounted = true;
@@ -43,6 +56,7 @@ export function Settings() {
       try {
         const response = await fetchSettings();
         if (isMounted) {
+          setActiveUserId(response.user_id);
           setSettings(response);
         }
       } catch (error) {
@@ -71,14 +85,52 @@ export function Settings() {
         api_keys: settings.api_keys,
         database: settings.database,
         hardware: settings.hardware,
-      });
+        });
       setSettings(saved);
+      setActiveUserId(saved.user_id);
       toast.success("Configuration saved securely.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to save settings.");
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleGenerateUserId = () => {
+    setSettings((current) => ({
+      ...current,
+      user_id: createProvisioningUserId(),
+    }));
+  };
+
+  const secretsHeader = `#pragma once
+
+constexpr char WIFI_SSID[] = "${wifiSsid || "REPLACE_WITH_WIFI_SSID"}";
+constexpr char WIFI_PASSWORD[] = "${wifiPassword || "REPLACE_WITH_WIFI_PASSWORD"}";
+
+constexpr char API_BASE_URL[] = "https://deerhacks26.onrender.com";
+constexpr char WATER_USER_ID[] = "${settings.user_id.trim() || "demo-user"}";
+`;
+
+  const handleCopySecrets = async () => {
+    try {
+      await navigator.clipboard.writeText(secretsHeader);
+      toast.success("ESP config copied.");
+    } catch {
+      toast.error("Unable to copy config.");
+    }
+  };
+
+  const handleDownloadSecrets = () => {
+    const blob = new Blob([secretsHeader], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "secrets.h";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -229,6 +281,101 @@ export function Settings() {
                 }
                 className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-4 py-3 text-white outline-none focus:ring-2 focus:ring-blue-500/50 font-mono text-sm"
               />
+            </div>
+          </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="p-6 rounded-xl border border-neutral-800 bg-neutral-900/50 backdrop-blur"
+        >
+          <div className="flex items-center gap-3 mb-6">
+            <Wifi size={20} className="text-cyan-400" />
+            <h3 className="text-lg font-semibold text-white">ESP Provisioning</h3>
+          </div>
+
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-neutral-300">Active User ID</label>
+                <input
+                  type="text"
+                  value={settings.user_id}
+                  onChange={(event) =>
+                    setSettings((current) => ({
+                      ...current,
+                      user_id: event.target.value,
+                    }))
+                  }
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-4 py-3 text-white outline-none focus:ring-2 focus:ring-cyan-500/50 font-mono text-sm"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleGenerateUserId}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-neutral-700 bg-neutral-950 px-4 py-3 text-sm text-neutral-200 hover:border-neutral-500"
+              >
+                <RefreshCw size={16} />
+                Generate User ID
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-neutral-300">Wi-Fi SSID</label>
+                <input
+                  type="text"
+                  value={wifiSsid}
+                  onChange={(event) => setWifiSsid(event.target.value)}
+                  placeholder="Your Wi-Fi network name"
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-4 py-3 text-white outline-none focus:ring-2 focus:ring-cyan-500/50 font-mono text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-neutral-300">Wi-Fi Password</label>
+                <input
+                  type="password"
+                  value={wifiPassword}
+                  onChange={(event) => setWifiPassword(event.target.value)}
+                  placeholder="Network password"
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-4 py-3 text-white outline-none focus:ring-2 focus:ring-cyan-500/50 font-mono text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-neutral-800 bg-neutral-950 p-4">
+              <p className="text-sm text-neutral-300">
+                The browser cannot automatically read the laptop&apos;s current Wi-Fi name or password, and it cannot
+                directly flash this PlatformIO firmware from the website. This tool generates the correct `secrets.h`
+                file so each user can flash their own ESP locally with the right backend URL and user id.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-neutral-800 bg-neutral-950 p-4">
+              <div className="flex flex-wrap gap-3 mb-4">
+                <button
+                  type="button"
+                  onClick={() => void handleCopySecrets()}
+                  className="inline-flex items-center gap-2 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-200 hover:border-neutral-500"
+                >
+                  <Copy size={16} />
+                  Copy `secrets.h`
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadSecrets}
+                  className="inline-flex items-center gap-2 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-200 hover:border-neutral-500"
+                >
+                  <Download size={16} />
+                  Download `secrets.h`
+                </button>
+              </div>
+
+              <pre className="overflow-x-auto rounded-lg border border-neutral-800 bg-black/30 p-4 text-xs text-neutral-200">
+                <code>{secretsHeader}</code>
+              </pre>
             </div>
           </div>
         </motion.div>

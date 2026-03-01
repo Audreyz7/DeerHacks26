@@ -1,4 +1,6 @@
 export const DEFAULT_USER_ID = "demo-user";
+const API_BASE_URL = "https://deerhacks26.onrender.com";
+const ACTIVE_USER_ID_KEY = "deerhacks.activeUserId";
 
 const ACTIVE_FOCUS_SESSION_KEY = "deerhacks.activeFocusSessionId";
 const ACTIVE_POMODORO_SESSION_KEY = "deerhacks.activePomodoroSessionId";
@@ -186,7 +188,29 @@ function writeLocalStorage<T>(key: string, value: T): void {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
-function getDefaultHydrationSummary(userId = DEFAULT_USER_ID): HydrationSummary {
+export function getActiveUserId(): string {
+  if (typeof window === "undefined") {
+    return DEFAULT_USER_ID;
+  }
+
+  return window.localStorage.getItem(ACTIVE_USER_ID_KEY) || DEFAULT_USER_ID;
+}
+
+export function setActiveUserId(userId: string | null): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const nextUserId = userId?.trim();
+  if (nextUserId) {
+    window.localStorage.setItem(ACTIVE_USER_ID_KEY, nextUserId);
+    return;
+  }
+
+  window.localStorage.removeItem(ACTIVE_USER_ID_KEY);
+}
+
+function getDefaultHydrationSummary(userId = getActiveUserId()): HydrationSummary {
   return {
     user_id: userId,
     today: {
@@ -213,7 +237,7 @@ function getDefaultHydrationSummary(userId = DEFAULT_USER_ID): HydrationSummary 
   };
 }
 
-function getHydrationFallback(userId = DEFAULT_USER_ID): HydrationSummary {
+function getHydrationFallback(userId = getActiveUserId()): HydrationSummary {
   const state = readLocalStorage<{
     schedule: HydrationSummary["schedule"];
     events: Array<{ amount_ml: number; consumed_at: string }>;
@@ -331,7 +355,7 @@ function composeFallbackEncouragement(focusScore: number, stressScore: number): 
   return "Steady pace. Keep going.";
 }
 
-function getDefaultVideoSource(userId = DEFAULT_USER_ID): VideoSourceResponse {
+function getDefaultVideoSource(userId = getActiveUserId()): VideoSourceResponse {
   return {
     user_id: userId,
     source_type: "webcam",
@@ -345,6 +369,7 @@ async function apiRequest<T>(path: string, init: ApiInit = {}): Promise<T> {
   let body = init.body;
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  const requestUrl = path.startsWith("/api/") ? `${API_BASE_URL}${path}` : path;
 
   if (body !== undefined && !(body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
@@ -352,7 +377,7 @@ async function apiRequest<T>(path: string, init: ApiInit = {}): Promise<T> {
   }
 
   try {
-    const response = await fetch(path, {
+    const response = await fetch(requestUrl, {
       ...init,
       headers,
       body: body as BodyInit | null | undefined,
@@ -370,7 +395,7 @@ async function apiRequest<T>(path: string, init: ApiInit = {}): Promise<T> {
   }
 }
 
-export async function fetchHydrationSummary(userId = DEFAULT_USER_ID): Promise<HydrationSummary> {
+export async function fetchHydrationSummary(userId = getActiveUserId()): Promise<HydrationSummary> {
   const localState = window.localStorage.getItem(HYDRATION_STATE_KEY);
   if (localState) {
     return getHydrationFallback(userId);
@@ -384,7 +409,7 @@ export async function fetchHydrationSummary(userId = DEFAULT_USER_ID): Promise<H
 
 export async function saveWaterSchedule(
   schedule: HydrationSummary["schedule"],
-  userId = DEFAULT_USER_ID,
+  userId = getActiveUserId(),
 ): Promise<HydrationSummary> {
   saveHydrationFallback((current) => ({ ...current, schedule }));
   void apiRequest("/api/water/schedule", {
@@ -404,7 +429,7 @@ export async function saveWaterSchedule(
 
 export async function logWaterIntake(
   amountMl = 250,
-  userId = DEFAULT_USER_ID,
+  userId = getActiveUserId(),
 ): Promise<HydrationSummary> {
   saveHydrationFallback((current) => ({
     ...current,
@@ -422,7 +447,7 @@ export async function logWaterIntake(
 
 export async function startFocusSession(
   allowPromptedBreaks: boolean,
-  userId = DEFAULT_USER_ID,
+  userId = getActiveUserId(),
 ): Promise<{ session: { session_id: string } }> {
   try {
     return await apiRequest("/api/stress/session/start", {
@@ -511,7 +536,7 @@ export async function fetchFocusReport(sessionId: string): Promise<FocusReportRe
 export async function fetchEncouragement(
   focusScore: number,
   stressScore: number,
-  userId = DEFAULT_USER_ID,
+  userId = getActiveUserId(),
 ): Promise<string> {
   try {
     const response = await apiRequest<{ message: string }>("/api/encouragement/message", {
@@ -530,7 +555,7 @@ export async function fetchEncouragement(
 }
 
 export async function fetchLatestFocusSnapshot(
-  userId = DEFAULT_USER_ID,
+  userId = getActiveUserId(),
 ): Promise<FocusSnapshotResponse> {
   try {
     return await apiRequest<FocusSnapshotResponse>(
@@ -560,7 +585,7 @@ export async function fetchLatestFocusSnapshot(
 
 export async function startPomodoro(
   config: { focus_minutes: number; break_minutes: number; cycles: number },
-  userId = DEFAULT_USER_ID,
+  userId = getActiveUserId(),
 ): Promise<{ session: { session_id: string } }> {
   const localSessionId = createId();
   writeLocalStorage(LOCAL_POMODORO_STATE_KEY, {
@@ -613,7 +638,7 @@ export async function stopPomodoro(sessionId: string): Promise<void> {
 }
 
 export async function fetchStressPromptPreference(
-  userId = DEFAULT_USER_ID,
+  userId = getActiveUserId(),
 ): Promise<{ stress_prompt_enabled: boolean }> {
   try {
     return await apiRequest<{ stress_prompt_enabled: boolean }>(
@@ -626,7 +651,7 @@ export async function fetchStressPromptPreference(
 
 export async function saveStressPromptPreference(
   enabled: boolean,
-  userId = DEFAULT_USER_ID,
+  userId = getActiveUserId(),
 ): Promise<void> {
   writeLocalStorage(LOCAL_STRESS_PROMPTS_KEY, enabled);
   try {
@@ -640,7 +665,7 @@ export async function saveStressPromptPreference(
   } catch {}
 }
 
-export async function fetchPersona(userId = DEFAULT_USER_ID): Promise<PersonaResponse> {
+export async function fetchPersona(userId = getActiveUserId()): Promise<PersonaResponse> {
   try {
     return await apiRequest<PersonaResponse>(`/api/chat/persona?user_id=${encodeURIComponent(userId)}`);
   } catch {
@@ -662,7 +687,7 @@ export async function savePersona(payload: {
   user_id?: string;
 }): Promise<PersonaResponse> {
   const persona = {
-    user_id: payload.user_id ?? DEFAULT_USER_ID,
+    user_id: payload.user_id ?? getActiveUserId(),
     pet_name: payload.pet_name,
     system_prompt: payload.system_prompt,
     voice_id: payload.voice_id,
@@ -697,14 +722,14 @@ export async function sendChatMessage(payload: {
     return await apiRequest("/api/chat/message", {
       method: "POST",
       body: {
-        user_id: payload.user_id ?? DEFAULT_USER_ID,
+        user_id: payload.user_id ?? getActiveUserId(),
         transcript: payload.transcript,
         conversation_id: payload.conversation_id,
         include_audio: payload.include_audio,
       },
     });
   } catch {
-    const persona = await fetchPersona(payload.user_id ?? DEFAULT_USER_ID);
+    const persona = await fetchPersona(payload.user_id ?? getActiveUserId());
     const conversationId = payload.conversation_id ?? createId();
     const replyText = `${persona.pet_name}: ${composeFallbackEncouragement(
       payload.transcript.toLowerCase().includes("focus") ? 0.8 : 0.5,
@@ -716,13 +741,13 @@ export async function sendChatMessage(payload: {
     messages.push(
       {
         conversation_id: conversationId,
-        user_id: payload.user_id ?? DEFAULT_USER_ID,
+        user_id: payload.user_id ?? getActiveUserId(),
         role: "user",
         content: payload.transcript,
       },
       {
         conversation_id: conversationId,
-        user_id: payload.user_id ?? DEFAULT_USER_ID,
+        user_id: payload.user_id ?? getActiveUserId(),
         role: "assistant",
         content: replyText,
         pet_name: persona.pet_name,
@@ -746,7 +771,7 @@ export async function previewVoice(payload: {
     return await apiRequest<{ audio_base64: string }>("/api/chat/preview", {
       method: "POST",
       body: {
-        user_id: payload.user_id ?? DEFAULT_USER_ID,
+        user_id: payload.user_id ?? getActiveUserId(),
         text: payload.text,
         voice_id: payload.voice_id,
       },
@@ -756,7 +781,7 @@ export async function previewVoice(payload: {
   }
 }
 
-export async function fetchChatStats(userId = DEFAULT_USER_ID): Promise<ChatStatsResponse> {
+export async function fetchChatStats(userId = getActiveUserId()): Promise<ChatStatsResponse> {
   try {
     return await apiRequest<ChatStatsResponse>(`/api/chat/stats?user_id=${encodeURIComponent(userId)}`);
   } catch {
@@ -773,7 +798,7 @@ export async function fetchChatStats(userId = DEFAULT_USER_ID): Promise<ChatStat
   }
 }
 
-export async function fetchSettings(userId = DEFAULT_USER_ID): Promise<SettingsResponse> {
+export async function fetchSettings(userId = getActiveUserId()): Promise<SettingsResponse> {
   try {
     return await apiRequest<SettingsResponse>(`/api/settings?user_id=${encodeURIComponent(userId)}`);
   } catch {
@@ -808,7 +833,7 @@ export async function saveSettings(
   return localSettings;
 }
 
-export async function fetchVideoSource(userId = DEFAULT_USER_ID): Promise<VideoSourceResponse> {
+export async function fetchVideoSource(userId = getActiveUserId()): Promise<VideoSourceResponse> {
   try {
     const response = await apiRequest<VideoSourceResponse>(
       `/api/video/source?user_id=${encodeURIComponent(userId)}`,
@@ -836,7 +861,7 @@ export async function saveVideoSource(
 }
 
 export async function fetchLatestVideoSnapshot(
-  userId = DEFAULT_USER_ID,
+  userId = getActiveUserId(),
 ): Promise<VideoSnapshotResponse> {
   try {
     const response = await apiRequest<VideoSnapshotResponse>(
@@ -852,12 +877,34 @@ export async function fetchLatestVideoSnapshot(
   }
 }
 
+export async function uploadBrowserVideoFrame(
+  frameBase64: string,
+  options?: { userId?: string; sessionId?: string | null },
+): Promise<VideoSnapshotResponse> {
+  const response = await apiRequest<VideoSnapshotResponse & { ok?: boolean }>("/api/video/browser-frame", {
+    method: "POST",
+    body: {
+      user_id: options?.userId ?? getActiveUserId(),
+      session_id: options?.sessionId ?? null,
+      frame_base64: frameBase64,
+    },
+  });
+  writeLocalStorage(LOCAL_VIDEO_SNAPSHOT_KEY, {
+    user_id: response.user_id,
+    snapshot: response.snapshot,
+  });
+  return {
+    user_id: response.user_id,
+    snapshot: response.snapshot,
+  };
+}
+
 export function buildVideoStreamUrl(
   source: Pick<VideoSourceResponse, "source_type" | "esp32_stream_url">,
   options?: { userId?: string; sessionId?: string | null },
 ): string {
   const params = new URLSearchParams({
-    user_id: options?.userId ?? DEFAULT_USER_ID,
+    user_id: options?.userId ?? getActiveUserId(),
     source_type: source.source_type,
   });
   if (source.source_type === "esp32" && source.esp32_stream_url) {

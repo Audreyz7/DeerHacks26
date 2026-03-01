@@ -20,3 +20,4 @@ class Config:
     # Presage SmartSpectra integration keys.
     PRESAGE_API_KEY = os.getenv("PRESAGE_API_KEY", "")
     PRESAGE_PROJECT_ID = os.getenv("PRESAGE_PROJECT_ID", "")
+    PRESAGE_API_URL = os.getenv("PRESAGE_API_URL", "")

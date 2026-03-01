@@ -21,6 +21,17 @@ import {
   sendChatMessage,
 } from "@/app/lib/api";
 
+type SpeechRecognitionConstructor = new () => {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
 export function Persona() {
   const [name, setName] = useState("Otto");
   const [personality, setPersonality] = useState(
@@ -35,7 +46,9 @@ export function Persona() {
   const [isSaving, setIsSaving] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const recognitionRef = useRef<InstanceType<SpeechRecognitionConstructor> | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -64,6 +77,10 @@ export function Persona() {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current = null;
+      }
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
       }
     };
   }, []);
@@ -117,6 +134,10 @@ export function Persona() {
         text: `Hi, I'm ${name}. Let's keep your focus steady today.`,
         voice_id: voice,
       });
+      if (!response.audio_base64) {
+        toast.success("Voice preview unavailable right now, but the voice selection was accepted.");
+        return;
+      }
       const audio = new Audio(`data:audio/mpeg;base64,${response.audio_base64}`);
       audioRef.current = audio;
       await audio.play();
@@ -125,6 +146,54 @@ export function Persona() {
     } finally {
       setIsPreviewing(false);
     }
+  };
+
+  const handleToggleListening = () => {
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      return;
+    }
+
+    const recognitionApi = (
+      window as Window & {
+        SpeechRecognition?: SpeechRecognitionConstructor;
+        webkitSpeechRecognition?: SpeechRecognitionConstructor;
+      }
+    ).SpeechRecognition ||
+      (
+        window as Window & {
+          SpeechRecognition?: SpeechRecognitionConstructor;
+          webkitSpeechRecognition?: SpeechRecognitionConstructor;
+        }
+      ).webkitSpeechRecognition;
+
+    if (!recognitionApi) {
+      toast.error("Browser speech recognition is not available here.");
+      return;
+    }
+
+    const recognition = new recognitionApi();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+    recognition.onresult = (event) => {
+      const transcript = event.results[0]?.[0]?.transcript?.trim() ?? "";
+      if (transcript) {
+        setTestMessage(transcript);
+      }
+    };
+    recognition.onerror = () => {
+      toast.error("Unable to capture speech right now.");
+      setIsListening(false);
+    };
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognitionRef.current = recognition;
+    setIsListening(true);
+    recognition.start();
   };
 
   return (
@@ -283,9 +352,12 @@ export function Persona() {
           </div>
 
           <div className="flex justify-center mt-4">
-            <button className="flex items-center gap-2 text-xs text-neutral-500 hover:text-white transition-colors">
+            <button
+              onClick={handleToggleListening}
+              className="flex items-center gap-2 text-xs text-neutral-500 hover:text-white transition-colors"
+            >
               <Mic size={14} />
-              Hold to Speak (Simulated)
+              {isListening ? "Listening..." : "Tap to Speak"}
             </button>
           </div>
         </motion.div>

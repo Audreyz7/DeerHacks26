@@ -8,10 +8,10 @@ import {
   Droplets,
   MessageSquare,
   Play,
-  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { LiveVideoPanel } from "@/app/components/LiveVideoPanel";
 import {
   fetchChatStats,
   fetchHydrationSummary,
@@ -166,26 +166,7 @@ export function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 p-6 rounded-xl border border-neutral-800 bg-neutral-900/50 backdrop-blur">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-white">Live Feed</h3>
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              <span className="text-xs text-neutral-400 font-mono">REC</span>
-            </div>
-          </div>
-
-          <div className="aspect-video bg-neutral-950 rounded-lg border border-neutral-800 flex items-center justify-center relative overflow-hidden group">
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-              <p className="text-white text-sm font-medium">Camera Feed (ESP32-CAM)</p>
-            </div>
-
-            <div className="text-center">
-              <Zap className="mx-auto text-neutral-700 mb-2" size={48} />
-              <p className="text-neutral-500 text-sm">Connecting to stream...</p>
-            </div>
-          </div>
-        </div>
+        <LiveVideoPanel />
 
         <div className="space-y-6">
           <div className="p-6 rounded-xl border border-neutral-800 bg-neutral-900/50 backdrop-blur">

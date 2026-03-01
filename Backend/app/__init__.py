@@ -6,6 +6,7 @@ from .routes.encouragement import bp as encouragement_bp
 from .routes.breaks import bp as breaks_bp
 from .routes.chat import bp as chat_bp
 from .routes.settings import bp as settings_bp
+from .routes.video import bp as video_bp
 
 def create_app():
     app = Flask(__name__)
@@ -20,5 +21,6 @@ def create_app():
     app.register_blueprint(breaks_bp, url_prefix="/api/breaks")
     app.register_blueprint(chat_bp, url_prefix="/api/chat")
     app.register_blueprint(settings_bp, url_prefix="/api/settings")
+    app.register_blueprint(video_bp, url_prefix="/api/video")
 
     return app

@@ -5,8 +5,10 @@ from statistics import mean
 from uuid import uuid4
 
 from flask import Blueprint, request
+
 from ..db import get_db
 from ..timezone_utils import get_timezone
+
 
 bp = Blueprint("stress", __name__)
 
@@ -60,7 +62,7 @@ def _build_report(samples: list[dict]) -> dict:
     }
 
 
-def _maybe_queue_break_prompt(db, session: dict, user_id: str, captured_at: datetime) -> None:
+def queue_break_prompt_if_needed(db, session: dict, user_id: str, captured_at: datetime) -> None:
     if not session.get("allow_prompted_breaks"):
         return
 
@@ -178,7 +180,7 @@ def ingest_focus_sample():
     }
     db.focus_samples.insert_one(sample)
 
-    _maybe_queue_break_prompt(db, session, session["user_id"], captured_at)
+    queue_break_prompt_if_needed(db, session, session["user_id"], captured_at)
 
     return {
         "ok": True,

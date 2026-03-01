@@ -606,11 +606,11 @@ void setup() {
   delay(250);
 
   initializeScreenAndAudio();
-  ensureWifiConnected();
+//   ensureWifiConnected();
 
-  fetchWaterSchedule();
-  fetchWaterSummary();
-  pollWaterReminder();
+//   fetchWaterSchedule();
+//   fetchWaterSummary();
+//   pollWaterReminder();
 
   lastReminderPollAt = millis();
   lastSummaryRefreshAt = millis();
@@ -620,46 +620,47 @@ void setup() {
 // void loop() {
 //     drawCatSprite(0, 0, 100);
 // }
-void loop() {
-    tft.fillScreen(ST77XX_BLACK); delay(300);
-    tft.fillScreen(ST77XX_WHITE); delay(300);
-}
-
 // void loop() {
-//   ensureWifiConnected();
-
-//   unsigned long now = millis();
-
-//   if (now - lastReminderPollAt >= REMINDER_POLL_MS) {
-//     pollWaterReminder();
-//     lastReminderPollAt = now;
-//   }
-
-//   if (now - lastSummaryRefreshAt >= SUMMARY_REFRESH_MS) {
-//     fetchWaterSummary();
-//     lastSummaryRefreshAt = now;
-//   }
-
-//   if (now - lastScheduleRefreshAt >= SCHEDULE_REFRESH_MS) {
-//     fetchWaterSchedule();
-//     lastScheduleRefreshAt = now;
-//   }
-
-//   if (Serial.available()) {
-//     String command = Serial.readStringUntil('\n');
-//     command.trim();
-
-//     if (command.equalsIgnoreCase("drink")) {
-//       postWaterIntake(250);
-//       fetchWaterSummary();
-//     } else if (command.equalsIgnoreCase("summary")) {
-//       fetchWaterSummary();
-//     } else if (command.equalsIgnoreCase("schedule")) {
-//       fetchWaterSchedule();
-//     } else if (command.equalsIgnoreCase("poll")) {
-//       pollWaterReminder();
-//     }
-//   }
-
-//   delay(50);
+//     Serial.println("in loop");
+//     tft.fillScreen(ST77XX_BLACK); delay(300);
+//     tft.fillScreen(ST77XX_WHITE); delay(300);
 // }
+
+void loop() {
+  ensureWifiConnected();
+
+  unsigned long now = millis();
+
+  if (now - lastReminderPollAt >= REMINDER_POLL_MS) {
+    pollWaterReminder();
+    lastReminderPollAt = now;
+  }
+
+  if (now - lastSummaryRefreshAt >= SUMMARY_REFRESH_MS) {
+    fetchWaterSummary();
+    lastSummaryRefreshAt = now;
+  }
+
+  if (now - lastScheduleRefreshAt >= SCHEDULE_REFRESH_MS) {
+    fetchWaterSchedule();
+    lastScheduleRefreshAt = now;
+  }
+
+  if (Serial.available()) {
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+
+    if (command.equalsIgnoreCase("drink")) {
+      postWaterIntake(250);
+      fetchWaterSummary();
+    } else if (command.equalsIgnoreCase("summary")) {
+      fetchWaterSummary();
+    } else if (command.equalsIgnoreCase("schedule")) {
+      fetchWaterSchedule();
+    } else if (command.equalsIgnoreCase("poll")) {
+      pollWaterReminder();
+    }
+  }
+
+  delay(50);
+}

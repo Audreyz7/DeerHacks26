@@ -1,5 +1,6 @@
 from flask import Flask
 from .config import Config
+from flask_cors import CORS
 from .routes.water import bp as water_bp
 from .routes.stress import bp as stress_bp
 from .routes.encouragement import bp as encouragement_bp
@@ -11,6 +12,7 @@ from .routes.video import bp as video_bp
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
+    CORS(app, resources={r"/api/*": {"origins": "*"}})
 
     from .db import close_db
     app.teardown_appcontext(close_db)

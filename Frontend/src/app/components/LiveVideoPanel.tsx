@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Camera, LoaderCircle, MonitorSmartphone, Save, Zap } from "lucide-react";
 import { toast } from "sonner";
 
@@ -22,6 +22,9 @@ export function LiveVideoPanel() {
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [streamErrored, setStreamErrored] = useState(false);
+  const [localWebcamStream, setLocalWebcamStream] = useState<MediaStream | null>(null);
+  const [cameraPermissionError, setCameraPermissionError] = useState<string | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -85,6 +88,75 @@ export function LiveVideoPanel() {
       }),
     [activeSource.esp32_stream_url, activeSource.source_type],
   );
+
+  useEffect(() => {
+    if (activeSource.source_type !== "webcam") {
+      setCameraPermissionError(null);
+      setLocalWebcamStream((currentStream) => {
+        currentStream?.getTracks().forEach((track) => track.stop());
+        return null;
+      });
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraPermissionError("This browser does not support camera access.");
+      return;
+    }
+
+    let isActive = true;
+
+    async function enableLocalWebcam() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+
+        if (!isActive) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        setCameraPermissionError(null);
+        setLocalWebcamStream((currentStream) => {
+          currentStream?.getTracks().forEach((track) => track.stop());
+          return stream;
+        });
+      } catch (error) {
+        if (!isActive) {
+          return;
+        }
+
+        setLocalWebcamStream((currentStream) => {
+          currentStream?.getTracks().forEach((track) => track.stop());
+          return null;
+        });
+        setCameraPermissionError(
+          error instanceof Error ? error.message : "Camera permission was denied.",
+        );
+      }
+    }
+
+    void enableLocalWebcam();
+
+    return () => {
+      isActive = false;
+    };
+  }, [activeSource.source_type]);
+
+  useEffect(() => {
+    if (!localVideoRef.current) {
+      return;
+    }
+
+    if (localWebcamStream) {
+      localVideoRef.current.srcObject = localWebcamStream;
+      return;
+    }
+
+    localVideoRef.current.srcObject = null;
+  }, [localWebcamStream]);
 
   async function persistSource(nextSource: VideoSourceResponse) {
     setIsSaving(true);
@@ -193,16 +265,28 @@ export function LiveVideoPanel() {
           </div>
         ) : (
           <>
-            <img
-              key={streamUrl}
-              src={streamUrl}
-              alt={`${activeSource.source_type} live stream`}
-              onLoad={() => setStreamErrored(false)}
-              onError={() => setStreamErrored(true)}
-              className={`absolute inset-0 h-full w-full object-cover ${
-                streamErrored ? "opacity-0" : "opacity-100"
-              }`}
-            />
+            {activeSource.source_type === "webcam" ? (
+              localWebcamStream ? (
+                <video
+                  ref={localVideoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+              ) : null
+            ) : (
+              <img
+                key={streamUrl}
+                src={streamUrl}
+                alt={`${activeSource.source_type} live stream`}
+                onLoad={() => setStreamErrored(false)}
+                onError={() => setStreamErrored(true)}
+                className={`absolute inset-0 h-full w-full object-cover ${
+                  streamErrored ? "opacity-0" : "opacity-100"
+                }`}
+              />
+            )}
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent flex items-end p-4">
               <div>
                 <p className="text-white text-sm font-medium">
@@ -216,13 +300,20 @@ export function LiveVideoPanel() {
               </div>
             </div>
 
-            {streamErrored ? (
+            {activeSource.source_type === "webcam" && !localWebcamStream ? (
+              <div className="text-center px-4">
+                <Zap className="mx-auto text-neutral-700 mb-2" size={48} />
+                <p className="text-neutral-500 text-sm">
+                  {cameraPermissionError ?? "Allow camera access to use the laptop webcam."}
+                </p>
+              </div>
+            ) : null}
+
+            {activeSource.source_type === "esp32" && streamErrored ? (
               <div className="text-center">
                 <Zap className="mx-auto text-neutral-700 mb-2" size={48} />
                 <p className="text-neutral-500 text-sm">
-                  {activeSource.source_type === "webcam"
-                    ? "Backend webcam stream is unavailable."
-                    : "Unable to reach the ESP32 stream."}
+                  Unable to reach the ESP32 stream.
                 </p>
               </div>
             ) : null}

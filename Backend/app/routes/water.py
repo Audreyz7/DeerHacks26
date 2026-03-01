@@ -155,6 +155,33 @@ def _summary_payload(db, user_id: str) -> dict:
         },
     }
 
+
+def _latest_stress_percent(db, user_id: str) -> int:
+    latest_sample = db.focus_samples.find_one(
+        {"user_id": user_id},
+        {"_id": 0, "stress_score": 1},
+        sort=[("captured_at", -1)],
+    )
+    if latest_sample:
+        try:
+            return max(0, min(int(round(float(latest_sample.get("stress_score", 0.0)) * 100)), 100))
+        except (TypeError, ValueError):
+            return 0
+
+    latest_report = db.focus_reports.find_one(
+        {"user_id": user_id},
+        {"_id": 0, "report.average_stress": 1},
+        sort=[("generated_at", -1)],
+    )
+    if latest_report:
+        try:
+            report = latest_report.get("report", {})
+            return max(0, min(int(round(float(report.get("average_stress", 0.0)) * 100)), 100))
+        except (TypeError, ValueError):
+            return 0
+
+    return 0
+
 bp = Blueprint("pets", __name__)
 
 # Routes 
@@ -362,3 +389,28 @@ def get_summary():
 
     db = get_db()
     return _summary_payload(db, user_id)
+
+
+@bp.get("/device-status")
+def get_device_status():
+    user_id = request.args.get("user_id")
+    if not user_id:
+        return {"error": "missing user_id"}, 400
+
+    db = get_db()
+    summary = _summary_payload(db, user_id)
+    today = summary.get("today", {})
+
+    return {
+        "user_id": user_id,
+        "server_time_utc": _now_utc().isoformat(),
+        "water_percent": int(today.get("progress_percent", 0) or 0),
+        "stress_percent": _latest_stress_percent(db, user_id),
+        "water": {
+            "total_intake_ml": int(today.get("total_intake_ml", 0) or 0),
+            "total_intake_liters": float(today.get("total_intake_liters", 0.0) or 0.0),
+            "goal_liters": float(today.get("goal_liters", 0.0) or 0.0),
+            "next_reminder_at": today.get("next_reminder_at"),
+        },
+        "schedule": summary.get("schedule", {}),
+    }

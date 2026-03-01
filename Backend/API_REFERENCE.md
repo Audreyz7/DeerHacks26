@@ -11,6 +11,7 @@ This file documents the current backend request shapes and the MongoDB collectio
   - Breaks: `/api/breaks`
   - Encouragement: `/api/encouragement`
   - Chat: `/api/chat`
+  - Video: `/api/video`
 
 ## Water
 
@@ -340,6 +341,50 @@ Example response:
   "transcript": "Nova, can you help me focus for the next hour?",
   "reply_text": "Absolutely. Start with one clear goal, silence distractions, and work in one focused block.",
   "reply_audio_base64": "<base64-encoded-mp3>"
+}
+```
+
+## Video
+
+### Save preferred video source
+
+- Method: `POST`
+- Path: `/api/video/source`
+
+```json
+{
+  "user_id": "audrey",
+  "source_type": "webcam",
+  "esp32_stream_url": "http://192.168.1.20:81/stream",
+  "webcam_index": 0
+}
+```
+
+### Get preferred video source
+
+- Method: `GET`
+- Path: `/api/video/source?user_id=audrey`
+
+### Open analyzed live video stream
+
+- Method: `GET`
+- Path: `/api/video/stream?user_id=audrey&source_type=webcam`
+
+### Get latest analyzed video snapshot
+
+- Method: `GET`
+- Path: `/api/video/latest?user_id=audrey`
+
+### Run a one-frame Presage test
+
+- Method: `POST`
+- Path: `/api/video/presage-test`
+
+```json
+{
+  "user_id": "audrey",
+  "source_type": "webcam",
+  "webcam_index": 0
 }
 ```
 

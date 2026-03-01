@@ -122,6 +122,14 @@ def _iter_esp32_frames(stream):
             end = buffer.find(b"\xff\xd9")
 
 
+def _read_one_esp32_frame(stream_url: str) -> bytes:
+    with urlopen(stream_url, timeout=5) as upstream:
+        frame_bytes = next(_iter_esp32_frames(upstream), None)
+    if not frame_bytes:
+        raise RuntimeError("No frame received from the ESP32 stream.")
+    return frame_bytes
+
+
 def _iter_webcam_frames(webcam_index: int):
     if cv2 is None:
         raise RuntimeError("OpenCV is not installed.")
@@ -139,6 +147,13 @@ def _iter_webcam_frames(webcam_index: int):
             yield frame
     finally:
         capture.release()
+
+
+def _read_one_webcam_frame(webcam_index: int) -> bytes:
+    frame = next(_iter_webcam_frames(webcam_index), None)
+    if frame is None:
+        raise RuntimeError("No frame received from the selected webcam.")
+    return _encode_frame_bytes(frame)
 
 
 def _decode_frame_bytes(frame_bytes: bytes):
@@ -441,3 +456,69 @@ def get_latest_video_snapshot():
     if snapshot.get("captured_at"):
         snapshot["captured_at"] = snapshot["captured_at"].isoformat()
     return {"user_id": user_id, "snapshot": snapshot}
+
+
+@bp.post("/presage-test")
+def run_presage_test():
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+
+    user_id = data.get("user_id") or request.args.get("user_id")
+    if not user_id:
+        return {"error": "missing user_id"}, 400
+
+    api_key = current_app.config.get("PRESAGE_API_KEY", "")
+    project_id = current_app.config.get("PRESAGE_PROJECT_ID", "")
+    api_url = current_app.config.get("PRESAGE_API_URL", "")
+    if not api_key or not project_id or not api_url:
+        return {"error": "Presage is not configured. Set PRESAGE_API_KEY, PRESAGE_PROJECT_ID, and PRESAGE_API_URL."}, 400
+
+    saved_source = _get_saved_video_source(db, user_id)
+    source_type = _normalize_source_type(data.get("source_type") or saved_source.get("source_type"))
+
+    try:
+        if source_type == "esp32":
+            stream_url = _resolve_esp32_stream_url(db, user_id, data.get("stream_url"))
+            if not stream_url:
+                return {"error": "missing esp32 stream URL"}, 400
+            frame_bytes = _read_one_esp32_frame(stream_url)
+            source_label = stream_url
+        else:
+            webcam_index = saved_source.get("webcam_index", 0)
+            if "webcam_index" in data:
+                try:
+                    webcam_index = int(data.get("webcam_index", 0))
+                except (TypeError, ValueError):
+                    webcam_index = 0
+            frame_bytes = _read_one_webcam_frame(int(webcam_index))
+            source_label = f"webcam:{webcam_index}"
+    except (HTTPError, URLError, TimeoutError, OSError, RuntimeError) as exc:
+        current_app.logger.exception("Unable to capture frame for Presage test.")
+        return {"error": str(exc)}, 503
+
+    local_metrics = _compute_local_frame_metrics(frame_bytes)
+    presage_metrics = _call_presage(frame_bytes, local_metrics)
+    if not presage_metrics:
+        return {
+            "ok": False,
+            "user_id": user_id,
+            "source_type": source_type,
+            "source_label": source_label,
+            "provider": local_metrics["raw_metrics"].get("provider", "opencv"),
+            "fallback_metrics": local_metrics,
+            "error": "Presage request failed or returned an unexpected payload.",
+        }, 502
+
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "source_type": source_type,
+        "source_label": source_label,
+        "provider": "presage",
+        "focus_score": presage_metrics["focus_score"],
+        "stress_score": presage_metrics["stress_score"],
+        "confidence": presage_metrics["confidence"],
+        "raw_presage_response": presage_metrics["raw_metrics"].get("presage_response"),
+        "fallback_metrics": local_metrics,
+        "tested_at": _now_utc().isoformat(),
+    }

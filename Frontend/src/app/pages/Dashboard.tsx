@@ -16,9 +16,11 @@ import {
   fetchChatStats,
   fetchHydrationSummary,
   fetchLatestFocusSnapshot,
+  fetchPersona,
   type ChatStatsResponse,
   type FocusSnapshotResponse,
   type HydrationSummary,
+  type PersonaResponse,
 } from "@/app/lib/api";
 
 function formatMinutesUntil(isoString: string | null): string {
@@ -58,10 +60,24 @@ function formatContentness(score: number): string {
   return "Needs Attention";
 }
 
+function formatPetFace(score: number): string {
+  if (score >= 85) {
+    return "^_^";
+  }
+  if (score >= 65) {
+    return ":)";
+  }
+  if (score >= 45) {
+    return ":|";
+  }
+  return ":(";
+}
+
 export function Dashboard() {
   const [hydration, setHydration] = useState<HydrationSummary | null>(null);
   const [focus, setFocus] = useState<FocusSnapshotResponse | null>(null);
   const [chatStats, setChatStats] = useState<ChatStatsResponse | null>(null);
+  const [persona, setPersona] = useState<PersonaResponse | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -69,10 +85,11 @@ export function Dashboard() {
 
     async function loadDashboard(showErrors: boolean) {
       try {
-        const [hydrationResponse, focusResponse, chatResponse] = await Promise.all([
+        const [hydrationResponse, focusResponse, chatResponse, personaResponse] = await Promise.all([
           fetchHydrationSummary(),
           fetchLatestFocusSnapshot(),
           fetchChatStats(),
+          fetchPersona(),
         ]);
 
         if (!isMounted) {
@@ -82,6 +99,7 @@ export function Dashboard() {
         setHydration(hydrationResponse);
         setFocus(focusResponse);
         setChatStats(chatResponse);
+        setPersona(personaResponse);
         hasLoadedOnce = true;
       } catch (error) {
         if (isMounted && showErrors) {
@@ -119,6 +137,9 @@ export function Dashboard() {
   const petContentness = Math.round(
     focusPercent * 0.45 + hydrationPercent * 0.35 + conversationFactor * 0.2,
   );
+  const petName = persona?.pet_name?.trim() || "Buddy";
+  const petFeeling = formatContentness(petContentness);
+  const petFace = formatPetFace(petContentness);
 
   const stats = [
     {
@@ -206,12 +227,12 @@ export function Dashboard() {
             <h3 className="text-lg font-semibold text-white mb-2">Pet Status</h3>
             <div className="flex items-center gap-4 mt-4">
               <div className="w-12 h-12 rounded-full bg-neutral-800 border-2 border-green-500 flex items-center justify-center">
-                <span className="text-2xl">:)</span>
+                <span className="text-lg font-semibold text-white">{petFace}</span>
               </div>
               <div>
-                <p className="text-sm font-medium text-white">Otto</p>
+                <p className="text-sm font-medium text-white">{petName}</p>
                 <p className="text-xs text-neutral-400">
-                  Feeling: {formatContentness(petContentness)}
+                  Feeling: {petFeeling}
                 </p>
               </div>
             </div>

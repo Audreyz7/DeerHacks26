@@ -25,11 +25,12 @@
 
 #define TFT_CS  5
 #define TFT_RST 21
-#define TFT_SDK 18
-#define TFT_A0 19 
+#define TFT_SCK 18
+#define TFT_A0 19
 #define TFT_SDA 23
-Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_A0, TFT_RST);
+#define TFT_MISO 2
 
+#define AUDIO_PIN 25
 #define AUDIO_PIN 25
 
 constexpr bool USE_INSECURE_TLS_FOR_DEV = true;
@@ -618,6 +619,42 @@ void setup() {
 }
 
 void loop() {
+  ensureWifiConnected();
+
+  unsigned long now = millis();
+
+  if (now - lastReminderPollAt >= REMINDER_POLL_MS) {
+    pollWaterReminder();
+    lastReminderPollAt = now;
+  }
+
+  if (now - lastSummaryRefreshAt >= SUMMARY_REFRESH_MS) {
+    fetchWaterSummary();
+    lastSummaryRefreshAt = now;
+  }
+
+  if (now - lastScheduleRefreshAt >= SCHEDULE_REFRESH_MS) {
+    fetchWaterSchedule();
+    lastScheduleRefreshAt = now;
+  }
+
+  if (Serial.available()) {
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+
+    if (command.equalsIgnoreCase("drink")) {
+      postWaterIntake(250);
+      fetchWaterSummary();
+    } else if (command.equalsIgnoreCase("summary")) {
+      fetchWaterSummary();
+    } else if (command.equalsIgnoreCase("schedule")) {
+      fetchWaterSchedule();
+    } else if (command.equalsIgnoreCase("poll")) {
+      pollWaterReminder();
+    }
+  }
+
+  delay(50);
   ensureWifiConnected();
 
   unsigned long now = millis();

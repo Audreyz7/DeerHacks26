@@ -52,6 +52,36 @@ Example response:
 - Method: `GET`
 - Path: `/api/water/schedule?user_id=audrey`
 
+### Get compact device status (ESP32)
+
+- Method: `GET`
+- Path: `/api/water/device-status?user_id=audrey`
+
+Example response:
+
+```json
+{
+  "user_id": "audrey",
+  "server_time_utc": "2026-03-01T20:00:00+00:00",
+  "water_percent": 40,
+  "stress_percent": 33,
+  "water": {
+    "total_intake_ml": 1000,
+    "total_intake_liters": 1.0,
+    "goal_liters": 2.5,
+    "next_reminder_at": "2026-03-01T21:00:00+00:00"
+  },
+  "schedule": {
+    "timezone": "America/Vancouver",
+    "start_time": "09:00",
+    "end_time": "22:00",
+    "interval_min": 60,
+    "enabled": true,
+    "daily_goal_liters": 2.5
+  }
+}
+```
+
 ### Poll for drink-water reminder (ESP32)
 
 - Method: `GET`

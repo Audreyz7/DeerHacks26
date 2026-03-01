@@ -1,4 +1,5 @@
 export const DEFAULT_USER_ID = "demo-user";
+const API_BASE_URL = "https://deerhacks26.onrender.com";
 
 const ACTIVE_FOCUS_SESSION_KEY = "deerhacks.activeFocusSessionId";
 const ACTIVE_POMODORO_SESSION_KEY = "deerhacks.activePomodoroSessionId";
@@ -345,6 +346,7 @@ async function apiRequest<T>(path: string, init: ApiInit = {}): Promise<T> {
   let body = init.body;
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  const requestUrl = path.startsWith("/api/") ? `${API_BASE_URL}${path}` : path;
 
   if (body !== undefined && !(body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
@@ -352,7 +354,7 @@ async function apiRequest<T>(path: string, init: ApiInit = {}): Promise<T> {
   }
 
   try {
-    const response = await fetch(path, {
+    const response = await fetch(requestUrl, {
       ...init,
       headers,
       body: body as BodyInit | null | undefined,
@@ -850,6 +852,28 @@ export async function fetchLatestVideoSnapshot(
       snapshot: null,
     });
   }
+}
+
+export async function uploadBrowserVideoFrame(
+  frameBase64: string,
+  options?: { userId?: string; sessionId?: string | null },
+): Promise<VideoSnapshotResponse> {
+  const response = await apiRequest<VideoSnapshotResponse & { ok?: boolean }>("/api/video/browser-frame", {
+    method: "POST",
+    body: {
+      user_id: options?.userId ?? DEFAULT_USER_ID,
+      session_id: options?.sessionId ?? null,
+      frame_base64: frameBase64,
+    },
+  });
+  writeLocalStorage(LOCAL_VIDEO_SNAPSHOT_KEY, {
+    user_id: response.user_id,
+    snapshot: response.snapshot,
+  });
+  return {
+    user_id: response.user_id,
+    snapshot: response.snapshot,
+  };
 }
 
 export function buildVideoStreamUrl(

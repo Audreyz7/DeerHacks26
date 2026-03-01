@@ -156,6 +156,9 @@ export function LiveVideoPanel() {
 
     if (localWebcamStream) {
       localVideoRef.current.srcObject = localWebcamStream;
+      void localVideoRef.current.play().catch(() => {
+        setCameraPermissionError("Camera is available, but playback was blocked by the browser.");
+      });
       return;
     }
 
@@ -335,6 +338,7 @@ export function LiveVideoPanel() {
                   autoPlay
                   muted
                   playsInline
+                  onLoadedData={() => setCameraPermissionError(null)}
                   className="absolute inset-0 h-full w-full object-cover"
                 />
               ) : null

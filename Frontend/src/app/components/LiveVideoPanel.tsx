@@ -6,7 +6,9 @@ import {
   buildVideoStreamUrl,
   fetchLatestVideoSnapshot,
   fetchVideoSource,
+  getStoredActiveFocusSessionId,
   saveVideoSource,
+  uploadBrowserVideoFrame,
   type VideoSnapshotResponse,
   type VideoSourceResponse,
 } from "@/app/lib/api";
@@ -25,6 +27,8 @@ export function LiveVideoPanel() {
   const [localWebcamStream, setLocalWebcamStream] = useState<MediaStream | null>(null);
   const [cameraPermissionError, setCameraPermissionError] = useState<string | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const isUploadingFrameRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -157,6 +161,65 @@ export function LiveVideoPanel() {
 
     localVideoRef.current.srcObject = null;
   }, [localWebcamStream]);
+
+  useEffect(() => {
+    if (activeSource.source_type !== "webcam" || !localWebcamStream) {
+      return;
+    }
+
+    let isActive = true;
+
+    async function uploadCurrentFrame() {
+      if (!isActive || isUploadingFrameRef.current || !localVideoRef.current) {
+        return;
+      }
+
+      const video = localVideoRef.current;
+      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        return;
+      }
+
+      const width = video.videoWidth || 640;
+      const height = video.videoHeight || 360;
+      const canvas = captureCanvasRef.current ?? document.createElement("canvas");
+      captureCanvasRef.current = canvas;
+      canvas.width = width;
+      canvas.height = height;
+
+      const context = canvas.getContext("2d");
+      if (!context) {
+        return;
+      }
+
+      context.drawImage(video, 0, 0, width, height);
+
+      isUploadingFrameRef.current = true;
+      try {
+        const response = await uploadBrowserVideoFrame(canvas.toDataURL("image/jpeg", 0.7), {
+          userId: activeSource.user_id,
+          sessionId: getStoredActiveFocusSessionId(),
+        });
+        if (isActive) {
+          setSnapshot(response.snapshot);
+        }
+      } catch {
+        // Ignore transient upload failures; the next polling cycle will retry.
+      } finally {
+        isUploadingFrameRef.current = false;
+      }
+    }
+
+    void uploadCurrentFrame();
+    const intervalId = window.setInterval(() => {
+      void uploadCurrentFrame();
+    }, 2500);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(intervalId);
+      isUploadingFrameRef.current = false;
+    };
+  }, [activeSource.source_type, activeSource.user_id, localWebcamStream]);
 
   async function persistSource(nextSource: VideoSourceResponse) {
     setIsSaving(true);

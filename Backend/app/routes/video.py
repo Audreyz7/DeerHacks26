@@ -172,6 +172,20 @@ def _encode_frame_bytes(frame) -> bytes:
     return encoded.tobytes()
 
 
+def _decode_browser_frame(frame_data: str) -> bytes:
+    payload = (frame_data or "").strip()
+    if not payload:
+        raise RuntimeError("Missing browser frame payload.")
+
+    if "," in payload and ";base64" in payload.split(",", 1)[0]:
+        payload = payload.split(",", 1)[1]
+
+    try:
+        return base64.b64decode(payload, validate=True)
+    except Exception as exc:
+        raise RuntimeError("Invalid browser frame payload.") from exc
+
+
 def _compute_local_frame_metrics(frame_bytes: bytes) -> dict:
     if cv2 is None or np is None:
         return {
@@ -323,6 +337,25 @@ def _persist_live_sample_if_needed(db, user_id: str, session_id: str | None, ana
     return captured_at
 
 
+def _save_browser_focus_sample(db, user_id: str, session_id: str | None, analysis: dict, captured_at: datetime) -> None:
+    sample = {
+        "sample_id": str(uuid4()),
+        "session_id": session_id or "browser-live",
+        "user_id": user_id,
+        "captured_at": captured_at,
+        "focus_score": analysis["focus_score"],
+        "stress_score": analysis["stress_score"],
+        "confidence": analysis["confidence"],
+        "raw_metrics": analysis["raw_metrics"],
+        "signal_source": analysis["raw_metrics"].get("provider", "browser-webcam"),
+    }
+    db.focus_samples.update_one(
+        {"user_id": user_id, "session_id": sample["session_id"]},
+        {"$set": sample},
+        upsert=True,
+    )
+
+
 def _stream_error_frame(message: str):
     yield b"--frame\r\n"
     yield b"Content-Type: text/plain\r\n\r\n"
@@ -456,6 +489,53 @@ def get_latest_video_snapshot():
     if snapshot.get("captured_at"):
         snapshot["captured_at"] = snapshot["captured_at"].isoformat()
     return {"user_id": user_id, "snapshot": snapshot}
+
+
+@bp.post("/browser-frame")
+def upload_browser_frame():
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+
+    user_id = data.get("user_id")
+    if not user_id:
+        return {"error": "missing user_id"}, 400
+
+    frame_data = data.get("frame_base64")
+    if not isinstance(frame_data, str) or not frame_data.strip():
+        return {"error": "missing frame_base64"}, 400
+
+    session_id = data.get("session_id")
+
+    try:
+        frame_bytes = _decode_browser_frame(frame_data)
+    except RuntimeError as exc:
+        return {"error": str(exc)}, 400
+
+    captured_at = _now_utc()
+    analysis = _analyze_frame(frame_bytes)
+    snapshot = _save_live_analysis(
+        db,
+        user_id,
+        "webcam",
+        "browser-webcam",
+        analysis,
+        session_id,
+        captured_at,
+    )
+
+    saved_at = _persist_live_sample_if_needed(db, user_id, session_id, analysis, captured_at, None)
+    if saved_at is None:
+        _save_browser_focus_sample(db, user_id, session_id, analysis, captured_at)
+
+    response_snapshot = dict(snapshot)
+    if response_snapshot.get("captured_at"):
+        response_snapshot["captured_at"] = response_snapshot["captured_at"].isoformat()
+
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "snapshot": response_snapshot,
+    }
 
 
 @bp.post("/presage-test")

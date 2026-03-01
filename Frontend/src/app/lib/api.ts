@@ -854,6 +854,28 @@ export async function fetchLatestVideoSnapshot(
   }
 }
 
+export async function uploadBrowserVideoFrame(
+  frameBase64: string,
+  options?: { userId?: string; sessionId?: string | null },
+): Promise<VideoSnapshotResponse> {
+  const response = await apiRequest<VideoSnapshotResponse & { ok?: boolean }>("/api/video/browser-frame", {
+    method: "POST",
+    body: {
+      user_id: options?.userId ?? DEFAULT_USER_ID,
+      session_id: options?.sessionId ?? null,
+      frame_base64: frameBase64,
+    },
+  });
+  writeLocalStorage(LOCAL_VIDEO_SNAPSHOT_KEY, {
+    user_id: response.user_id,
+    snapshot: response.snapshot,
+  });
+  return {
+    user_id: response.user_id,
+    snapshot: response.snapshot,
+  };
+}
+
 export function buildVideoStreamUrl(
   source: Pick<VideoSourceResponse, "source_type" | "esp32_stream_url">,
   options?: { userId?: string; sessionId?: string | null },
